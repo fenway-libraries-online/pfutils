@@ -3,12 +3,12 @@
 path+=/usr/local/bin
 
 typeset -a files
-files=( /var/log/mail.log )
+files=( /var/log/maillog(N) /var/log/mail.log(N) )
 
 typeset opt
 while getopts :a opt; do
     case $opt in
-        (a) files=( /var/log/mail.log*(Om) ) ;;
+        (a) files=( /var/log/maillog*(OmN) /var/log/mail.log*(OmN) ) ;;
         (*) break ;;
     esac
 done
