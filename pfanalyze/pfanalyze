@@ -1,0 +1,138 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use POSIX qw(strftime);
+use Getopt::Long
+    qw(:config posix_default gnu_compat require_order bundling no_ignore_case);
+
+# State -- queued or done
+use constant QUEUED   => 'Q';
+use constant DONE     => 'D';
+
+$| = 1;
+
+my $year = (localtime)[5] + 1900;
+my $only_domain;
+my ($show_jobs, $show_only_jobs, $parseable);
+
+GetOptions(
+    'd|domain=s' => \$only_domain,
+    'y|year=i' => \$year,
+    'j|show-jobs' => \$show_jobs,
+    'J|show-only-jobs' => sub { $show_jobs = $show_only_jobs = 1 },
+    'p|parseable' => \$parseable,
+    'V|version' => sub {
+        print <<'EOS';
+pfgrep __VERSION__ by __AUTHOR__
+__COPYRIGHT__
+EOS
+        exit 0
+    },
+) or usage();
+
+my %mon2num = qw(
+    Jan  1      Feb  2      Mar  3
+    Apr  4      May  5      Jun  6
+    Jul  7      Aug  8      Sep  9
+    Oct 10      Nov 11      Dec 12
+);
+
+my %job;
+my ($from, $to);
+my $last_timestamp = 0;
+
+$SIG{'HUP'} = \&show_jobs;
+
+while (defined(my $line = <STDIN>)) {
+    chomp $line;
+    my ($mon, $day, $time, undef, undef, $qid, $etc) = split /\s+/, $line, 7;
+    $qid =~ s/:$//;
+    if ($etc eq 'removed') {
+        my $timestamp = timestamp($year, $mon, $day, (split /:/, $time));
+        my @keys = grep { /^$qid:/ } keys %job;
+        my @jobs = delete @job{@keys};
+        next if !@jobs;
+        if (!$show_only_jobs) {
+            output(DONE, $_, $timestamp) for @jobs;
+        }
+        $last_timestamp = $timestamp;
+    }
+    elsif ($line =~ /[:,] from=<([^<>]*)>/) {
+        $from = $1;
+    }
+    elsif ($line !~ /[:,] to=\S/) {
+        next;
+    }
+    else {
+        my $timestamp = timestamp($year, $mon, $day, (split /:/, $time));
+        $line =~ s/status=(\S+)// or next;
+        my $status = $1;
+        my %line;
+        while ($etc =~ s/(.+?)=(\S+?), //) {
+            $line{$1} = $2;
+        }
+        s/^<|>$//g for grep { defined $_ } @line{qw(to orig_to)};
+        $to = $line{'to'};
+        foreach ($from, $to) {
+            $_ = '?'  if !defined $_;
+            $_ = '<>' if !length $_;
+        }
+        my ($user, $domain) = split /\@/, $to;
+        $domain = '.' if !defined $domain || !length $domain;
+        $domain = lc $domain;
+        if (!defined $only_domain || $domain eq $only_domain) {
+            my $key = $qid . ':' . $user . '@' . $domain;
+            if (defined $job{$key}) {
+                $job{$key}->[4] = $status;
+                $job{$key}->[5] = $line{'dsn'} || '0.0.0';
+                # $job{$key} = [ $qid, $user, $domain, $timestamp, $status, $line{'dsn'} || '0.0.0' ];
+            }
+            else {
+                $job{$key} = [ $qid, $from, $to, $timestamp, $status, $line{'dsn'} || '0.0.0' ];
+            }
+        }
+        $last_timestamp = $timestamp;
+    }
+}
+show_jobs() if $show_jobs;
+
+# --- Functions
+
+sub show_jobs {
+    print "{\n";
+    output(QUEUED, $_, $last_timestamp) for values %job;
+    print "}\n";
+}
+
+sub timestamp {
+    return strftime('%s', localtime) if !@_;
+    my ($Y, $m, $d, $H, $M, $S) = @_;
+    my $t = strftime('%s', $S, $M, $H, $d, $mon2num{$m}-1, $Y-1900);
+    my $td = $t - time();
+    if ($td > 86400 * 31) {
+        $t = timestamp($year - 1, $m, $d, $H, $M, $S);
+    }
+    return $t;
+}
+
+sub output {
+    my ($state, $job, $timestamp) = @_;
+    my ($qid, $from, $to, $started, $status, $dsn) = @$job;
+    if ($parseable) {
+        printf "%s %s %s %d %s %s %s\n",
+               $state, $dsn, $qid, $timestamp-$started, ymdhms($timestamp), $from, $to;
+    }
+    else {
+        printf "%s %s %s %6dm %-19.19s %s\n".
+               "%53.53s %s\n",
+               $state, $dsn, $qid, int(($timestamp-$started)/60), ymdhms($timestamp), $from, chr(96)."->", $to;
+    }
+    #print "$state $dsn $qid $started $timestamp $user $domain\n";
+}
+
+sub ymdhms {
+    my ($s) = @_;
+    strftime('%Y-%m-%d %H:%M:%S', localtime $s);
+}

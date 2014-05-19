@@ -1,0 +1,109 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use POSIX qw(strftime);
+use Getopt::Long
+    qw(:config posix_default gnu_compat require_order bundling no_ignore_case);
+
+my ($limit_to_domain, $all_time);
+my $verbose = 0;
+
+GetOptions(
+    'v|verbose' => sub { $verbose++ },
+    'd|domain=s' => \$limit_to_domain,
+    'a|all-time' => \$all_time,
+    'V|version' => sub {
+        print <<'EOS';
+pfgrep __VERSION__ by __AUTHOR__
+__COPYRIGHT__
+EOS
+        exit 0
+    },
+) or usage();
+
+@ARGV=('1h', 'Mail log summary for the last hour') if !@ARGV;
+
+# Look at the last hour by default
+my $t0 = strftime('%Y-%m-%d %H:%M:%S', localtime($all_time ? 0 : time - (@ARGV ? duration2seconds($ARGV[0]) : 3600)));
+
+# What to call the resulting report (if there were any failures)
+my $msg = @ARGV > 1 ? $ARGV[1] : "Mail log summary per domain";
+
+my %qid2ok;
+my %domain2results;
+my %domain2err;
+
+while (<STDIN>) {
+    last if /^{/;
+    chomp;
+    my ($state, $dsn, $qid, $delay, $end_date, $end_time, $user, $domain) = split /\s+/;
+    my $timestamp = "$end_date $end_time";
+    next if $timestamp lt $t0;
+    $domain = 'localhost' if !defined $domain || !length $domain;
+    next if defined $limit_to_domain && $domain ne $limit_to_domain;
+    my $result;
+    if ($dsn =~ /^2/) {
+        $result = 'OK';
+        $qid2ok{$qid} = 1;
+    }
+    else {
+        $result = 'ERR(dsn=' . $dsn . ')';
+        $domain2err{$domain}++;
+    }
+    $domain2results{$domain}{$result}{$user}{$qid}++;
+    # WAS: $domain2results{$domain}{$result}{$user}++;
+    $domain2results{$domain}{$result}{'*'}++;
+    $domain2results{$domain}{'*'}++;
+}
+
+exit 0 if !$verbose && !keys %domain2err;
+
+print $msg, ":\n\n";
+
+foreach my $d (sort keys %domain2results) {
+    my $dhash = $domain2results{$d};
+    my $dn = $dhash->{'*'};
+    if (!$domain2err{$d} && !$verbose) {
+        printf "%4d OK %s\n", $dn, $d;
+        next;
+    }
+    printf "%4d -- %s\n", $dn, $d;
+    my @r = keys %$dhash;
+    next if !$verbose && @r == 1 && $r[0] eq 'OK';  # They were all OK
+    foreach my $r (reverse sort @r) {
+        next if $r eq '*';
+        my $rhash = $dhash->{$r};
+        my $rn = $rhash->{'*'};
+        printf "        %4d %s\n", $rn, $r;
+        foreach my $u (keys %$rhash) {
+            next if $u eq '*';
+            my $qhash = $rhash->{$u};
+            #foreach my $qid (keys %$qhash) {
+            #    $r = 'OK' if $qid2ok{$qid};
+            #}
+            $u .= '@' . $d;
+            if ($r eq 'OK') {
+                printf "             %4d %s\n", scalar keys %$qhash, $u if $verbose > 1;
+            }
+            else {
+                printf "             %4d %s : %s\n", scalar keys %$qhash, $u, join(' ', sort keys %$qhash);
+            }
+            # WAS: my $un = $rhash->{$u};
+            # WAS: printf "             %4d %s\n", $un, $u;
+        }
+    }
+}
+
+sub duration2seconds {
+    local $_ = shift;
+    return $_ if /^\d+$/;
+    my $s = 0;
+    $s += 86400 * $1 if s/^(\d+)d//i;
+    $s +=  3600 * $1 if s/^(\d+)h//i;
+    $s +=    60 * $1 if s/^(\d+)m//i;
+    $s +=         $1 if s/^(\d+)s//i;
+    return $s;
+}
+

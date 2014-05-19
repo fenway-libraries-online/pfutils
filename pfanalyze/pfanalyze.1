@@ -1,0 +1,68 @@
+.\" Process this file with
+.\" groff -man -Tascii pfanalyze.1
+.\"
+.TH PFANALYZE 1 "pfanalyze"
+.
+.
+.SH NAME
+.
+pfanalyze \- analyze Postfix log entries
+.
+.
+.\" -----------------------------------------------------------------
+.
+.SH SYNOPSIS
+.
+.B pfanalyze [-y YEAR] [-j] [-J QUEUEID] [-V]
+.
+.\" -----------------------------------------------------------------
+.
+.SH DESCRIPTION
+.
+.B pfanalyze
+reads Postfix mail log entries from standard input and prints the results
+of each job (i.e., each message) in a summarized form.
+.
+.\" -----------------------------------------------------------------
+.
+.SH OPTIONS
+.
+.TP
+.BI -y " YEAR"
+Assume
+.B YEAR
+in all log entries.  The default is to assume the current year.
+.
+.TP
+.BI -j
+Show current queue contents.
+.
+.TP
+.B -J
+Show
+.B only
+current queue contents.
+.
+.TP
+.B -V
+Show version information and exit.
+.
+.\" -----------------------------------------------------------------
+.
+.SH SEE ALSO
+.
+pfgrep(1)
+.
+.\" -----------------------------------------------------------------
+.
+.SH VERSION 
+__VERSION__
+.
+.SH AUTHOR
+__AUTHOR__
+.
+.SH COPYRIGHT
+__COPYRIGHT__
+.P
+Released under the terms of the GNU
+General Public License, version 2 -- see the file LICENSE for details.

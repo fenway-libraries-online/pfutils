@@ -1,0 +1,196 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+$0 = 'pfqut';
+
+use IPC::Run3;
+use POSIX qw(strftime);
+use Getopt::Long
+    qw(:config posix_default gnu_compat require_order bundling no_ignore_case);
+
+sub mailq(&);
+
+my %status_text = (
+    ''  => 'queued',
+    '!' => 'held',
+    '*' => 'active',
+);
+
+my %mon2m = qw(
+    Jan  1  Feb  2  Mar  3
+    Apr  4  May  5  Jun  6
+    Jul  7  Aug  8  Sep  9
+    Oct 10  Nov 11  Dec 12
+);
+
+GetOptions(
+    'V|version' => sub {
+        print <<'EOS';
+pfqut __VERSION__ by __AUTHOR__
+__COPYRIGHT__
+EOS
+        exit 0
+    },
+) or usage();
+@ARGV = qw(list) if !@ARGV;
+my $cmd = shift;
+my $code = __PACKAGE__->can("cmd_$cmd") || usage();
+$code->();
+
+sub cmd_list {
+    my ($held, $active);
+    GetOptions(
+        'H' => \$held,
+        'A' => \$active,
+    ) or usage();
+    mailq {
+        my ($entry) = @_;
+        my $qid = $entry->{'queue_id'};
+        return if @ARGV && ! grep { $_ eq $qid } @ARGV;
+        return if $held   && $entry->{'status'} ne 'held';
+        return if $active && $entry->{'status'} ne 'active';
+        my $sender = '<' . $entry->{'sender'} . '>';
+        my @recips = map { "<$_>" } @{ $entry->{'recipients'} };
+        my @out = (
+            $qid,
+            STATUS => $entry->{'status'},
+            DATE   => $entry->{'date'},
+            FROM   => $sender,
+        );
+        push @out, TO => $_ for @recips;
+        push @out, ERROR => $entry->{'error'} if $entry->{'error'};
+        print join(' ', @out), "\n";
+    };
+}
+
+sub cmd_get {
+    my ($envelope, $header, $body);
+    GetOptions(
+        'e' => \$envelope,
+        'h' => \$header,
+        'b' => \$body,
+    ) or usage();
+    if (!$envelope && !$header && !$body) {
+        $header = $body = 1;
+    }
+    foreach my $qid (@ARGV) {
+        my @cmd = ( qw(postcat -v -q), $qid );
+        my (@header, @body, $sender, @recipients, $in_body);
+        run3 \@cmd, undef, sub {
+            local $_ = shift;
+            if (/^sender: (.+)/ && $envelope) {
+                $sender = $1;
+            }
+            elsif (/^recipient: (.+)/ && $envelope) {
+                push @recipients, $1;
+            }
+            elsif (($header || $body) && s/^regular_text: //) {
+                if (/^$/) {
+                    $in_body = 1;
+                }
+                elsif ($in_body) {
+                    push @body, $_;
+                }
+                else {
+                    push @header, $_;
+                }
+            }
+        }, \undef;
+        if ($envelope) {
+            print join(' ', 'FROM', $sender, 'TO', @recipients), "\n"
+        }
+        if ($header) {
+            print $_ for @header;
+            print "\n" if $body;
+        }
+        if ($body) {
+            print $_ for @body;
+        }
+    }
+}
+
+sub cmd_release {
+    my $all;
+    GetOptions(
+        'a' => \$all,
+    ) or usage();
+    return if !@ARGV;
+    my @out;
+    my @cmd = qw(postsuper -H -);
+    run3 \@cmd,
+        [ map { $_ . "\n" } @ARGV ],  # stdin
+        \@out, \@out;
+    my $err = $?;
+    my %ok;
+    foreach (@out) {
+        $ok{$1} = 1 if /^postsuper: (\w+): released/;
+    }
+    foreach (@ARGV) {
+        print $ok{$_} ? "OK  $_ released\n" : "ERR $_ not released\n";
+    }
+    exit $err;
+}
+
+sub cmd_delete {
+    my $all;
+    GetOptions(
+        'a' => \$all,
+    ) or usage();
+    return if !@ARGV;
+    my @out;
+    my @cmd = qw(postsuper -d -);
+    run3 \@cmd,
+        [ map { $_ . "\n" } @ARGV ],  # stdin
+        \@out, \@out;
+    my $err = $?;
+    my %ok;
+    foreach (@out) {
+        $ok{$1} = 1 if /^postsuper: (\w+): deleted/;
+    }
+    foreach (@ARGV) {
+        print $ok{$_} ? "OK  $_ deleted\n" : "ERR $_ not deleted\n";
+    }
+    exit $err;
+}
+
+sub mailq(&) {
+    my ($callback) = @_;
+    open my $fh, '-|', 'mailq' or die;
+    local $_ = <$fh>;
+    return if /^No /;
+    my @entries;
+    $/ = '';
+    while (<$fh>) {
+        chomp;
+        last if /\A-- \d+ Kbytes in \d+ Request/i;
+        my ($first, @rmdr) = split /\n/;
+        $first =~ /\A([0-9A-F]+)([*!]?)\s+(\d+)\s+(... ... [ \d]\d \d\d:\d\d:\d\d)\s+(.+)$/
+            or die;
+        my %entry = (
+            'queue_id'  => $1,
+            'status'    => $status_text{$2},
+            'size'      => $3,
+            'date'      => parse_date($4),
+            'sender'    => $5,
+        );
+        if (@rmdr && $rmdr[0] =~ /\A\S/) {
+            $entry{'error'} = shift @rmdr;
+        }
+        s/^\s+// for @rmdr;
+        $entry{'recipients'} = \@rmdr;
+        $callback->($_) for \%entry;
+    }
+    close $fh;
+}
+
+sub parse_date {
+    my ($dow, $mon, $d, $H, $M, $S) = split /[ :]+/, shift();
+    my $m = $mon2m{$mon};
+    my $today = strftime('%Y%m%dT%H%M%S', localtime);
+    my $Ytoday = substr($today, 0, 4);
+    my $mtoday = substr($today, 4, 2);
+    my $Y = ($mtoday < $m) ? $Ytoday - 1 : $Ytoday;
+    return strftime('%Y%m%dT%H%M%S', $S, $M, $H, $d, $m - 1, $Y - 1900);
+}

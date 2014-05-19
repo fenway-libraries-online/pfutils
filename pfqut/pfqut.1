@@ -1,0 +1,113 @@
+.\" Process this file with
+.\" groff -man -Tascii pfqut.1
+.\"
+.TH PFQUT 1 "pfqut"
+.
+.SH NAME
+.
+pfqut \- Postfix queue utility
+.
+.\" -----------------------------------------------------------------
+.
+.SH SYNOPSIS
+.
+.B pfqut
+.I COMMAND
+[
+.IR ARG \.\.\.\&
+]
+.
+.SH DESCRIPTION
+.
+.TP
+\fBpfqut list\fP [ \fB-HA\fP ] [ \fIQID\fP ... ]
+List all (or specified) messages in the queue.  Option
+.B -H
+limits this to held messages and option
+.B -A
+limits this to active messages.
+.
+.TP
+\fBpfqut get\fP [ \fB-ehb\fP ] \fIQID\dP \.\.\.
+Print the envelope, header, and/or body of one or more messages in the queue.
+.P
+The envelope is printed in the format
+.B FROM
+.I SENDER
+.B TO
+.I RECIPIENT
+[
+.B TO
+.I RECIPIENT
+] \.\.\.\&
+.P
+If no option is specified, the header and body are printed.
+.
+.P
+.B pfqut release
+[
+.B -a
+|
+.IR QID \.\.\.\&
+]
+.
+.P
+.B pfqut delete
+[
+.B -a
+|
+.IR QID \.\.\.\&
+]
+.
+.\" -----------------------------------------------------------------
+.
+.SH DESCRIPTION
+.
+.B pfqut
+lists, prints, releases, or deletes messages in Postfix's queue.
+.
+.TP
+.B pfqut list
+.TP
+.B pfqut get
+[
+.B -ehb
+]
+.IR QID \.\.\.\&
+Print the envelope, header, and/or body of one or more messages in the queue.
+.P
+The envelope is printed in the format
+.B FROM
+.I SENDER
+.B TO
+.I RECIPIENT
+[
+.B TO
+.I RECIPIENT
+] \.\.\.\&
+.P
+If no option is specified, the header and body are printed.
+.
+.TP
+.B pfqut release
+[
+.B -a
+|
+.IR QID \.\.\.\&
+]
+.P
+.B pfqut delete
+.P Release or delete.
+.\" -----------------------------------------------------------------
+.
+.SH VERSION 
+__VERSION__
+.
+.SH AUTHOR
+__AUTHOR__
+.
+.SH COPYRIGHT
+__COPYRIGHT__
+.P
+Released under the terms of the GNU
+General Public License, version 2 -- see the file LICENSE for details.

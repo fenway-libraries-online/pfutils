@@ -1,0 +1,112 @@
+.\" Process this file with
+.\" groff -man -Tascii pfgrep.1
+.\"
+.TH PFGREP 1 "pfgrep"
+.
+.
+.SH NAME
+.
+pfgrep \- search Postfix log files
+.
+.
+.\" -----------------------------------------------------------------
+.
+.SH SYNOPSIS
+.
+.B pfgrep [-avqLV] [-l FILE] QUEUEID|ADDRESS|DOMAIN|PATTERN
+.
+.\" -----------------------------------------------------------------
+.
+.SH DESCRIPTION
+.
+.B pfgrep
+displays information from Postfix mail logs.  It can search by queue ID,
+address, domain, or any arbitrary pattern.
+.
+.P
+If the environment variable
+.B $MAILLOG
+is set, log entries are read from that file.  Otherwise they are read from
+whichever of
+.B /var/log/maillog
+and
+.B /var/log/mail.log
+exists
+(but see options
+.B -l
+and
+.B -L
+below).
+.
+.\" -----------------------------------------------------------------
+.
+.SH OPTIONS
+.
+.TP
+.B -a
+Analyze the results using
+.BR pfanalyze(1) .
+.
+.TP
+.BI -v
+Be more verbose.
+.
+.TP
+.BI -q
+Be less verbose.
+.
+.TP
+.BI -l " FILE"
+Read log entries from
+.I FILE
+rather than the default.
+Specify `-' for standard input. 
+This option is repeatable.
+.
+.TP
+.BI -L
+Look in all files matching
+.B /var/log/maillog*
+or
+.BR /var/log/mail.log* .
+.
+.TP
+.B -V
+Show version information and exit.
+.
+.\" -----------------------------------------------------------------
+.
+.SH EXAMPLES
+.
+.P
+Look for entries for mail sent to or from an e-mail address:
+.IP
+pfgrep luser@example.com
+.
+.\" -----------------------------------------------------------------
+.
+.SH SEE ALSO
+.
+pfanalyze(1), postfix(1), postlog(1)
+.
+.\" -----------------------------------------------------------------
+.
+.SH BUGS
+.
+A temporary file is used when reading log entries from standard input.
+.
+Compressed mail log files are not treated specially.
+.
+.\" -----------------------------------------------------------------
+.
+.SH VERSION 
+__VERSION__
+.
+.SH AUTHOR
+__AUTHOR__
+.
+.SH COPYRIGHT
+__COPYRIGHT__
+.P
+Released under the terms of the GNU
+General Public License, version 2 -- see the file LICENSE for details.

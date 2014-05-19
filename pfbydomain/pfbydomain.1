@@ -1,0 +1,95 @@
+.\" Process this file with
+.\" groff -man -Tascii pfbydomain.1
+.\"
+.TH PFBYDOMAIN 1 "pfbydomain"
+.
+.
+.SH NAME
+.
+pfbydomain \- summarize Postfix jobs by domain
+.
+.
+.\" -----------------------------------------------------------------
+.
+.SH SYNOPSIS
+.
+.B pfbydomain [-va] [-d DOMAIN] [PERIOD [DESCRIP]]
+.
+.\" -----------------------------------------------------------------
+.
+.SH DESCRIPTION
+.
+.B pfbydomain
+reads Postfix job results in the form produced by
+.B pfanalyze(1)
+and summarizes their successes and failures in a concise format.
+.
+.P
+If the entries show no failures, no output is produced (unless option
+.B -v
+is given).  This makes
+.B pfbydomain
+well suited to use in a cron job.
+.
+.P
+.BR PERIOD ,
+if specified, is a string of count and units; these are added to determine how
+far into the past to look.  Any entries older than this will be ignored.
+.P
+For example, 2h30m indicates that jobs from the last two and a half hours
+should be summarized.
+.P
+Valid units are
+.BR d " (days), " h " (hours), " m " (minutes),
+and
+.BR s " (seconds)."
+A day is assumed to be consist of exactly twenty-four hours.
+.
+.P
+.BR DESCRIP ,
+if given, is a string to print (on a separate) line before any other output,
+but only if there is other output.  This is a quick and easy way to add a line
+to cron job output.
+.
+.\" -----------------------------------------------------------------
+.
+.SH OPTIONS
+.
+.TP
+.B -a
+Report on all jobs regardless of their timestamps.
+.
+.TP
+.B -v
+Be more verbose.
+.
+.TP
+.BI -d " DOMAIN"
+Report only on mail to or from
+.IR DOMAIN .
+.
+.\" -----------------------------------------------------------------
+.
+.SH SEE ALSO
+.
+pfanalyze(1), pfgrep(1)
+.
+.\" -----------------------------------------------------------------
+.
+.SH BUGS
+.
+A temporary file is used when reading log entries from standard input.
+.
+.\" -----------------------------------------------------------------
+.
+.SH VERSION 
+__VERSION__
+.
+.SH AUTHOR
+__AUTHOR__
+.
+.SH COPYRIGHT
+__COPYRIGHT__
+.P
+Released under the terms of the GNU
+General Public License, version 2 -- see the file LICENSE for details.

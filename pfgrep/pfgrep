@@ -1,0 +1,135 @@
+#!/bin/zsh
+
+setopt nullglob extendedglob
+
+path+=/usr/local/bin
+
+typeset -a logfiles
+typeset opt analyze=false quiet=false verbose=false cleanup=false
+
+main() {
+    while getopts :aqvl:LV opt; do
+        case $opt in
+            (a) analyze=true; verbose=true ;;
+            (q) quiet=true ;;
+            (v) verbose=true ;;
+            (l) logfiles+=$OPTARG ;;
+            (L) logfiles=( /var/log/mail.log*(Om) /var/log/maillog*(Om) ) ;;
+            (V) print "pfgrep __VERSION__ by __AUTHOR__" >&2
+                print "__COPYRIGHT__" >&2
+                exit 0 ;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
+    ! $quiet || verbose=false
+
+    (( $#logfiles > 0 )) || logfiles=( $(default-mail-log-files) )
+    (( $#logfiles > 0 )) || fatal 'No mail log files found'
+
+    if (( $#logfiles == 1 )) && [[ ${logfiles[1]} == '-' ]]; then
+        logfiles=( /tmp/pfgrep.$$.log )
+        cat > ${logfiles[1]}
+        cleanup=true
+    fi
+
+    typeset query=$1
+    case $query in
+        (*@*)
+            find-address $query
+            ;;
+        ([0-9A-F]?????????[0-9A-F])
+            find-queue-id $@
+            ;;
+        (*.*)
+            find-domain $query
+            ;;
+        (*) find-pattern pattern "$query"
+            #print 'usage: pfgrep ADDRESS | QUEUE-ID | DOMAIN' >&2
+            #exit 1
+            ;;
+    esac | sed -n '/^../p'
+    ! $cleanup || rm -f $logfiles
+}
+
+default-mail-log-files() {
+    set -- $MAILLOG /var/log/maillog /var/log/mail.log
+    for f in $@; do
+        if [[ -e $f ]]; then
+            print $f
+            return
+        fi
+    done
+}
+
+finish() {
+    if $analyze; then
+        pfanalyze -j
+    else
+        hilite-errors
+    fi
+}
+
+find-pattern() {
+    typeset descrip=$1 pattern="$2" mon day time me process qid etc
+    typeset -a qidlist
+    fgrep -h "$pattern" $logfiles | while read mon day time me process qid etc; do
+        qidlist+=${qid[1,-2]}  # strip trailing colon
+    done
+    if (( $#qidlist == 0 )); then
+        $quiet || print "No log entries for $descrip $pattern found" >&2
+        exit 2
+    fi
+    $quiet || print "\e[33;1mLog entries for $descrip $pattern\e[0m" >&2
+    find-queue-id $qidlist
+}
+
+find-domain() {
+    find-pattern domain "@$1"
+}
+
+find-address() {
+    find-pattern address "<$1>"
+}
+
+find-queue-id() {
+    typeset qid
+    if $verbose && $analyze; then
+        print-header
+    fi
+    for qid in ${(u)@}; do
+        if ! $quiet; then
+            $analyze || print "\e[32;1mQueue ID $qid:\e[0m"
+        fi
+        fgrep -h $qid $logfiles | finish
+    done
+    ! $verbose || cat <<EOS
+KEY: 
+  D = Postfix is done with the message
+  Q = the message is still in a queue
+DSN codes:
+  2.x.x = success
+  4.x.x = failure, may be transient
+  5.x.x = failure, Postfix has given up
+For code explanations see http://tools.ietf.org/html/rfc3463
+EOS
+}
+
+hilite-errors() {
+    if [[ -t 1 ]] && ! $quiet; then
+        perl -pe 's/(dsn=[^2]....)/\e[41;1m$1\e[0m/g'
+    else
+        cat
+    fi
+}
+
+print-header() {
+    printf -- '* %-5.5s %-11.11s %-7.7s %-19.19s %s\n' DSN 'Queue ID' Elapsed 'End date and time' 'User and host'
+    printf -- '- %-5.5s %-11.11s %-7.7s %-19.19s %s\n' ----- ----------- ---------- -------------------- -------------------------------
+}
+
+fatal() {
+    print -- "$*" >&2
+    exit 2
+}
+
+main "$@"
