@@ -71,7 +71,7 @@ sub cmd_get {
         'e' => \$envelope,
         'h' => \$header,
         'b' => \$body,
-        'm' => \$mbox,
+        'm' => sub { $mbox = $header = $body = 1; $envelope = 0 },
     ) or usage();
     if (!$envelope && !$header && !$body) {
         $header = $body = 1;
