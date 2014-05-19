@@ -1,0 +1,23 @@
+#!/bin/zsh
+
+path+=/usr/local/bin
+
+typeset -a files
+files=( /var/log/mail.log )
+
+typeset opt
+while getopts :a opt; do
+    case $opt in
+        (a) files=( /var/log/mail.log*(Om) ) ;;
+        (*) break ;;
+    esac
+done
+shift $(( OPTIND - 1 ))
+
+for f in $files; do
+    case $f:t in
+        (*.bz2) bzcat $f ;;
+        (*.gz)  zcat $f  ;;
+        (*)     cat $f ;;
+    esac
+done | pfanalyze | pfbydomain "$@"

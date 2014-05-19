@@ -1,4 +1,4 @@
-SCRIPTS = pfanalyze pfbydomain pfgrep pfqut
+SCRIPTS = pfanalyze pfbydomain pfgrep pfqut pflogcheck
 
 all:
 	@for s in $(SCRIPTS); do make -C $$s; done
