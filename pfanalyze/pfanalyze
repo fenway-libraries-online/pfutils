@@ -9,7 +9,7 @@ use Getopt::Long
 
 # State -- queued or done
 use constant QUEUED   => 'Q';
-use constant NOQUEUE  => 'N';
+use constant REJECTED => 'R';
 use constant DONE     => 'D';
 
 $| = 1;
@@ -46,11 +46,12 @@ my $last_timestamp = 0;
 
 $SIG{'HUP'} = \&show_jobs;
 
-while (<STDIN>) {
-    my $line = parse($_);
-    my ($qid, $from, $to, $timestamp) = @$line{qw(qid from to timestamp)};
-    if ($line->{'removed'}) {
-        my $qid = $line->{'qid'};
+while (defined(my $line = <STDIN>)) {
+    chomp $line;
+    my ($mon, $day, $time, undef, undef, $qid, $etc) = split /\s+/, $line, 7;
+    $qid =~ s/:$//;
+    my $timestamp = timestamp($year, $mon, $day, (split /:/, $time));
+    if ($etc eq 'removed') {
         my @keys = grep { /^$qid:/ } keys %job;
         my @jobs = delete @job{@keys};
         next if !@jobs;
@@ -59,27 +60,45 @@ while (<STDIN>) {
         }
         $last_timestamp = $timestamp;
     }
-    elsif ($qid eq 'NOQUEUE') {
-        my ($started, $status, $dsn) = @$line{qw(started status dsn)};
-        for ($from, $to, $started, $status, $dsn) {
-            $_ = '-' if !defined $_;
+    elsif ($line =~ / from=(<[^\s<>]*>)/) {
+        $from = $1;
+        if ($qid eq 'NOQUEUE') {
+            my ($status, $dsn);
+            if ($etc =~ /^reject: RCPT from \S+: (\d\d\d) (\d\.\d\.\d) [^;]*;\s+.+ to=(<[^\s<>]*>)/) {
+                ($status, $dsn, $to) = ($1, $2, $3);
+                output(REJECTED, [ '-', $from, $to, $timestamp, $status, $dsn ], $timestamp);
+            }
+            undef $from;
+            undef $to;
         }
-        output(NOQUEUE, [ 'n/a', $from, $to, $started, $status, $dsn ], $timestamp);
     }
-    if (!defined $to) {
+    elsif ($line !~ / to=<\S/) {
         next;
     }
     else {
-        my $status = $line->{'status'} || next;
-        my ($user, $domain) = @$line{qw(user domain)};
+        $line =~ s/status=(\S+)// or next;
+        my $status = $1;
+        my %line;
+        while ($etc =~ s/(.+?)=(\S+?), //) {
+            $line{$1} = $2;
+        }
+        #s/^<|>$//g for grep { defined $_ } @line{qw(to orig_to)};
+        $to = $line{'to'};
+        foreach ($from, $to) {
+            $_ = '?'  if !defined $_;
+            $_ = '<>' if !length $_;
+        }
+        my ($user, $domain) = split /\@/, $to;
+        $domain = '.' if !defined $domain || !length $domain;
+        $domain = lc $domain;
         if (!defined $only_domain || $domain eq $only_domain) {
-            my $key = $line->{'key'};
+            my $key = $qid . ':' . $user . '@' . $domain;
             if (defined $job{$key}) {
                 $job{$key}->[4] = $status;
-                $job{$key}->[5] = $line->{'dsn'} || '0.0.0';
+                $job{$key}->[5] = $line{'dsn'} || '0.0.0';
             }
             else {
-                $job{$key} = [ $qid, $from, $to, $timestamp, $status, $line->{'dsn'} || '0.0.0' ];
+                $job{$key} = [ $qid, $from, $to, $timestamp, $status, $line{'dsn'} || '0.0.0' ];
             }
         }
         $last_timestamp = $timestamp;
@@ -119,49 +138,10 @@ sub output {
                "%53.53s %s\n",
                $state, $dsn, $qid, int($delay/60), ymdhms($timestamp), $from, chr(96)."->", $to;
     }
-    #print "$state $dsn $qid $started $timestamp $user $domain\n";
 }
 
 sub ymdhms {
     my ($s) = @_;
     return '????-??-?? ??:??:??' if !defined $s;
     strftime('%Y-%m-%d %H:%M:%S', localtime $s);
-}
-
-sub parse {
-    local $_ = shift;
-    my %line;
-    my ($mon, $day, $time, undef, undef, $qid, $etc) = split /\s+/, $_, 7;
-    $qid =~ s/:$//;
-    $line{'qid'} = $qid;
-    my $timestamp = $line{'timestamp'} = timestamp($year, $mon, $day, (split /:/, $time));
-    $line{'status'} = $1 if s/status=(\S+)//;
-    if ($etc eq 'removed') {
-        $line{'removed'} = 1;
-    }
-    elsif ($qid eq 'NOQUEUE') {
-        $line{'noqueue'} = 1;
-        my ($from, $to, $status, $dsn);
-        $from = $1 if /[:,;<>] from=<([^<>]*)>/;
-        $to = $1 if /[:,;<>] to=<([^<>]*)>/;
-        ($status, $dsn) = ($1, $2) if /NOQUEUE: [^:]+: [^:]+: (\d\d\d) (\d+\.\d+\.\d+)/;
-        @line{qw(from to status dsn started)} = ($from, $to, $status, $dsn, $timestamp);
-    }
-    while ($etc =~ s/(.+?)=(\S+?), //) {
-        $line{$1} = $2;
-    }
-    s/^<|>$//g for grep { defined $_ } @line{qw(to orig_to)};
-    $to = $line{'to'};
-    foreach ($from, $to) {
-        $_ = '?'  if !defined $_;
-        $_ = '<>' if !length $_;
-    }
-    my ($user, $domain) = split /\@/, $to;
-    $domain = '.' if !defined $domain || !length $domain;
-    $domain = lc $domain;
-    $line{'user'} = $user;
-    $line{'domain'} = $domain;
-    $line{'key'} = $qid . ':' . $user . '@' . $domain;
-    $line{'dsn'} ||= '0.0.0';
-    return \%line;
 }

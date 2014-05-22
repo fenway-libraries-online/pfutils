@@ -12,7 +12,7 @@ my $verbose = 0;
 
 GetOptions(
     'v|verbose' => sub { $verbose++ },
-    'd|domain=s' => \$limit_to_domain,
+    'd|domain=s' => sub { $limit_to_domain = lc $_[1] },
     'a|all-time' => \$all_time,
     'V|version' => sub {
         print <<'EOS';
@@ -40,15 +40,21 @@ while (<STDIN>) {
     next if /^\s/;
     chomp;
     my ($state, $dsn, $qid, $delay, $end_date, $end_time, $sender, $recip) = split /\s+/;
-    my ($user, $domain) = split /\@/, $recip;
+    s/^<(?=[^<>])|(?<=[^<>])>$//g for $sender, $recip;
+    my ($user, $domain) = $recip eq '<>' ? ('<>', '<>') : (split /[@]/, $recip);
     my $timestamp = "$end_date $end_time";
     next if $timestamp lt $t0;
-    $domain = 'localhost' if !defined $domain || !length $domain;
+    $domain = defined $domain && length $domain ? lc $domain : 'localhost';
+    #$domain = 'localhost' if !defined $domain || !length $domain;
     next if defined $limit_to_domain && $domain ne $limit_to_domain;
     my $result;
     if ($dsn =~ /^2/) {
         $result = 'OK';
         $qid2ok{$qid} = 1;
+    }
+    elsif ($state eq 'R') {
+        $result = 'REJ';
+        $domain2err{$domain}++;
     }
     else {
         $result = 'ERR(dsn=' . $dsn . ')';
@@ -79,15 +85,15 @@ foreach my $d (sort keys %domain2results) {
         my $rhash = $dhash->{$r};
         my $rn = $rhash->{'*'};
         printf "        %4d %s\n", $rn, $r;
-        foreach my $u (keys %$rhash) {
+        foreach my $u (sort keys %$rhash) {
             next if $u eq '*';
             my $qhash = $rhash->{$u};
-            #foreach my $qid (keys %$qhash) {
-            #    $r = 'OK' if $qid2ok{$qid};
-            #}
             $u .= '@' . $d;
             if ($r eq 'OK') {
                 printf "             %4d %s\n", scalar keys %$qhash, $u if $verbose > 1;
+            }
+            elsif ($r eq 'REJ') {
+                #printf "             %4d %s\n", scalar keys %$qhash, $u;
             }
             else {
                 printf "             %4d %s : %s\n", scalar keys %$qhash, $u, join(' ', sort keys %$qhash);
