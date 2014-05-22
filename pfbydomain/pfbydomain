@@ -39,8 +39,8 @@ while (<STDIN>) {
     last if /^{/;
     next if /^\s/;
     chomp;
-    my ($state, $dsn, $qid, $delay, $end_date, $end_time, $sender) = split /\s+/;
-    my ($user, $domain) = split /\@/, $sender;
+    my ($state, $dsn, $qid, $delay, $end_date, $end_time, $sender, $recip) = split /\s+/;
+    my ($user, $domain) = split /\@/, $recip;
     my $timestamp = "$end_date $end_time";
     next if $timestamp lt $t0;
     $domain = 'localhost' if !defined $domain || !length $domain;
