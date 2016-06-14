@@ -40,22 +40,24 @@ my $code = __PACKAGE__->can("cmd_$cmd") || usage();
 $code->();
 
 sub cmd_list {
-    my ($held, $active);
+    my %want_status;
     GetOptions(
-        'H' => \$held,
-        'A' => \$active,
+        'Q' => sub { $want_status{'queued'} = 1 },
+        'H' => sub { $want_status{'held'  } = 1 },
+        'A' => sub { $want_status{'active'} = 1 },
     ) or usage();
+    my %want_queue_id = map { $_ => 1 } @ARGV;
     mailq {
         my ($entry) = @_;
         my $qid = $entry->{'queue_id'};
-        return if @ARGV && ! grep { $_ eq $qid } @ARGV;
-        return if $held   && $entry->{'status'} ne 'held';
-        return if $active && $entry->{'status'} ne 'active';
+        my $status = $entry->{'status'};
+        return if keys(%want_queue_id) && !$want_queue_id{$qid};
+        return if keys(%want_status  ) && !$want_status{$status};
         my $sender = '<' . $entry->{'sender'} . '>';
         my @recips = map { "<$_>" } @{ $entry->{'recipients'} };
         my @out = (
             $qid,
-            STATUS => $entry->{'status'},
+            STATUS => $status,
             DATE   => $entry->{'date'},
             FROM   => $sender,
         );
