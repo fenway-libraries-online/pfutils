@@ -20,15 +20,17 @@ pfqut \- Postfix queue utility
 .SH DESCRIPTION
 .
 .TP
-\fBpfqut list\fP [ \fB-HA\fP ] [ \fIQID\fP ... ]
+\fBpfqut list\fP [ \fB-QHA\fP ] [ \fIQID\fP ... ]
 List all (or specified) messages in the queue.  Option
+.B -Q
+limits this to queued (i.e., deferred) messages;
 .B -H
-limits this to held messages and option
+limits to held messages and 
 .B -A
-limits this to active messages.
+limits to active messages.  These options may be combined.
 .
 .TP
-\fBpfqut get\fP [ \fB-ehb\fP ] \fIQID\dP \.\.\.
+\fBpfqut get\fP [ \fB-ehb\fP ] \fIQID\fP \.\.\.
 Print the envelope, header, and/or body of one or more messages in the queue.
 .P
 The envelope is printed in the format
@@ -37,67 +39,20 @@ The envelope is printed in the format
 .B TO
 .I RECIPIENT
 [
-.B TO
-.I RECIPIENT
-] \.\.\.\&
-.P
-If no option is specified, the header and body are printed.
-.
-.P
-.B pfqut release
-[
-.B -a
-|
-.IR QID \.\.\.\&
-]
-.
-.P
-.B pfqut delete
-[
-.B -a
-|
-.IR QID \.\.\.\&
-]
-.
-.\" -----------------------------------------------------------------
-.
-.SH DESCRIPTION
-.
-.B pfqut
-lists, prints, releases, or deletes messages in Postfix's queue.
-.
-.TP
-.B pfqut list
-.TP
-.B pfqut get
-[
-.B -ehb
-]
-.IR QID \.\.\.\&
-Print the envelope, header, and/or body of one or more messages in the queue.
-.P
-The envelope is printed in the format
-.B FROM
-.I SENDER
-.B TO
-.I RECIPIENT
-[
-.B TO
 .I RECIPIENT
 ] \.\.\.\&
 .P
 If no option is specified, the header and body are printed.
 .
 .TP
-.B pfqut release
-[
-.B -a
-|
-.IR QID \.\.\.\&
-]
-.P
-.B pfqut delete
-.P Release or delete.
+\fBpfqut release\fP [ \fB-a\fP | \fIQID\fP \.\.\. ]
+Release one or more held messages.  Option \fB-a\fP causes all held messages to be released.
+.
+.TP
+\fBpfqut delete\fP [ \fB-a\fP | \fIQID\fP \.\.\. ]
+Delete one or more messages from the queue.  Option \fB-a\fP causes all messages in the queue to be deleted.
+\fBUSE THIS COMMAND WITH CAUTION!\fP
+.
 .\" -----------------------------------------------------------------
 .
 .SH VERSION 
