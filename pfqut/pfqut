@@ -3,14 +3,15 @@
 use strict;
 use warnings;
 
-$0 = 'pfqut';
-
 use IPC::Run3;
 use POSIX qw(strftime);
 use Getopt::Long
     qw(:config posix_default gnu_compat require_order bundling no_ignore_case);
 
+sub usage;
 sub mailq(&);
+
+(my $prog = $0) =~ s{.*/}{};
 
 my %status_text = (
     ''  => 'queued',
@@ -25,27 +26,27 @@ my %mon2m = qw(
     Oct 10  Nov 11  Dec 12
 );
 
-GetOptions(
-    'V|version' => sub {
-        print <<'EOS';
-pfqut __VERSION__ by __AUTHOR__
-__COPYRIGHT__
-EOS
-        exit 0
-    },
-) or usage();
+### GetOptions(
+###     'V|version' => sub {
+###         print <<'EOS';
+### pfqut __VERSION__ by __AUTHOR__
+### __COPYRIGHT__
+### EOS
+###         exit 0
+###     },
+### ) or usage;
 @ARGV = qw(list) if !@ARGV;
 my $cmd = shift;
-my $code = __PACKAGE__->can("cmd_$cmd") || usage();
+my $code = __PACKAGE__->can("cmd_$cmd") || usage;
 $code->();
 
 sub cmd_list {
     my %want_status;
-    GetOptions(
+    orient(
         'Q' => sub { $want_status{'queued'} = 1 },
         'H' => sub { $want_status{'held'  } = 1 },
         'A' => sub { $want_status{'active'} = 1 },
-    ) or usage();
+    );
     my %want_queue_id = map { $_ => 1 } @ARGV;
     mailq {
         my ($entry) = @_;
@@ -69,12 +70,12 @@ sub cmd_list {
 
 sub cmd_get {
     my ($envelope, $header, $body, $mbox);
-    GetOptions(
+    orient(
         'e' => \$envelope,
         'h' => \$header,
         'b' => \$body,
         'm' => sub { $mbox = $header = $body = 1; $envelope = 0 },
-    ) or usage();
+    );
     if (!$envelope && !$header && !$body) {
         $header = $body = 1;
     }
@@ -120,9 +121,9 @@ sub cmd_get {
 
 sub cmd_release {
     my $all;
-    GetOptions(
+    orient(
         'a' => \$all,
-    ) or usage();
+    );
     return if !@ARGV;
     my @out;
     my @cmd = qw(postsuper -H -);
@@ -142,9 +143,9 @@ sub cmd_release {
 
 sub cmd_delete {
     my $all;
-    GetOptions(
+    orient(
         'a' => \$all,
-    ) or usage();
+    );
     return if !@ARGV;
     my @out;
     my @cmd = qw(postsuper -d -);
@@ -200,4 +201,19 @@ sub parse_date {
     my $mtoday = substr($today, 4, 2);
     my $Y = ($mtoday < $m) ? $Ytoday - 1 : $Ytoday;
     return strftime('%Y%m%dT%H%M%S', $S, $M, $H, $d, $m - 1, $Y - 1900);
+}
+
+sub orient {
+    my ($config);
+    # delete $ENV{'MAIL_CONFIG'};
+    GetOptions(
+        'c=s' => \$config,
+        @_,
+    ) or usage;
+    $ENV{'MAIL_CONFIG'} = $config if defined $config;
+}
+
+sub usage {
+    print STDERR "usage: $prog list|get|delete|release [ARG...]\n";
+    exit 1;
 }
