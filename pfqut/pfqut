@@ -155,7 +155,7 @@ sub cmd_delete {
     my $err = $?;
     my %ok;
     foreach (@out) {
-        $ok{$1} = 1 if /^postsuper: (\w+): deleted/;
+        $ok{$1} = 1 if /^postsuper: (\w+): (?:removed|deleted)/;
     }
     foreach (@ARGV) {
         print $ok{$_} ? "OK  $_ deleted\n" : "ERR $_ not deleted\n";
