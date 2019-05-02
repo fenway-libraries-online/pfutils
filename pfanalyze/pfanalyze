@@ -48,8 +48,12 @@ my $last_timestamp = 0;
 
 $SIG{'HUP'} = \&show_jobs;
 
+open STDIN, '<', '/dev/null'
+    if $show_only_jobs && !@ARGV;
+
 while (defined(my $line = <>)) {
     next if $line =~ /^\e\[/;  # Decorations for terminal
+    next if $line !~ /\S/;     # Blank line
     chomp $line;
     my ($mon, $day, $time, undef, undef, $qid, $etc) = split /\s+/, $line, 7;
     next if !exists $mon2num{$mon};
