@@ -16,7 +16,7 @@ $| = 1;
 
 my $year = (localtime)[5] + 1900;
 my $only_domain;
-my ($show_jobs, $show_only_jobs, $parseable);
+my ($show_jobs, $show_only_jobs, $parseable, $show_errors, %want);
 
 GetOptions(
     'd|domain=s' => \$only_domain,
@@ -24,6 +24,8 @@ GetOptions(
     'j|show-jobs' => \$show_jobs,
     'J|show-only-jobs' => sub { $show_jobs = $show_only_jobs = 1 },
     'p|parseable' => \$parseable,
+    'e|show-errors' => \$show_errors,
+    'b|bounces' => sub { $want{'bounced'} = 1 },
     'V|version' => sub {
         print <<'EOS';
 pfgrep __VERSION__ by __AUTHOR__
@@ -46,11 +48,14 @@ my $last_timestamp = 0;
 
 $SIG{'HUP'} = \&show_jobs;
 
-while (defined(my $line = <STDIN>)) {
+while (defined(my $line = <>)) {
+    next if $line =~ /^\e\[/;  # Decorations for terminal
     chomp $line;
     my ($mon, $day, $time, undef, undef, $qid, $etc) = split /\s+/, $line, 7;
+    next if !exists $mon2num{$mon};
     $qid =~ s/:$//;
     my $timestamp = timestamp($year, $mon, $day, (split /:/, $time));
+    $etc = '' if !defined $etc;
     if ($etc eq 'removed') {
         my @keys = grep { /^$qid:/ } keys %job;
         my @jobs = delete @job{@keys};
@@ -66,7 +71,7 @@ while (defined(my $line = <STDIN>)) {
             my ($status, $dsn);
             if ($etc =~ /^reject: RCPT from \S+: (\d\d\d) (\d\.\d\.\d) [^;]*;\s+.+ to=(<[^\s<>]*>)/) {
                 ($status, $dsn, $to) = ($1, $2, $3);
-                output(REJECTED, [ '-', $from, $to, $timestamp, $status, $dsn ], $timestamp);
+                output(REJECTED, [ '--NOQUEUE--', $from, $to, $timestamp, $status, $dsn ], $timestamp);
             }
             undef $from;
             undef $to;
@@ -76,9 +81,9 @@ while (defined(my $line = <STDIN>)) {
         next;
     }
     else {
-        $line =~ s/status=(\S+)// or next;
-        my $status = $1;
-        my %line;
+        $line =~ s/status=(\S+)(?:\s+(.+))?// or next;
+        my ($status, $msg) = ($1, $2);
+        my %line = ('message' => $msg);
         while ($etc =~ s/(.+?)=(\S+?), //) {
             $line{$1} = $2;
         }
@@ -96,9 +101,10 @@ while (defined(my $line = <STDIN>)) {
             if (defined $job{$key}) {
                 $job{$key}->[4] = $status;
                 $job{$key}->[5] = $line{'dsn'} || '0.0.0';
+                $job{$key}->[6] = $msg;
             }
             else {
-                $job{$key} = [ $qid, $from, $to, $timestamp, $status, $line{'dsn'} || '0.0.0' ];
+                $job{$key} = [ $qid, $from, $to, $timestamp, $status, $line{'dsn'} || '0.0.0', $msg ];
             }
         }
         $last_timestamp = $timestamp;
@@ -125,18 +131,39 @@ sub timestamp {
     return $t;
 }
 
+sub parsemsg {
+    local $_ = shift;
+    if (s/^\(host \S+ said: //) {
+        s/\)$//;
+    }
+    return $_;
+}
+
 sub output {
     my ($state, $job, $timestamp) = @_;
-    my ($qid, $from, $to, $started, $status, $dsn) = @$job;
-    my $delay = defined($started) ? $timestamp - $started : 0;
+    my ($qid, $from, $to, $started, $status, $dsn, $msg) = @$job;
+    return if %want and !$want{$status};
+    my $delay = defined($started) ? int(($timestamp - $started) / 60) : 0;
     if ($parseable) {
-        printf "%s %s %s %d %s %s %s\n",
-               $state, $dsn, $qid, $delay, ymdhms($timestamp), $from, $to;
+        if ($show_errors && $dsn =~ /^[45]/) {
+            printf "%s %s %-11s %d %s %s %s :: %s\n",
+                   $state, $dsn, $qid, $delay, ymdhms($timestamp), $from, $to, parsemsg($msg || '(unknown error)');
+        }
+        else {
+            printf "%s %s %-11s %d %s %s %s\n",
+                   $state, $dsn, $qid, $delay, ymdhms($timestamp), $from, $to;
+        }
     }
     else {
-        printf "%s %s %s %6dm %-19.19s %s\n".
-               "%53.53s %s\n",
-               $state, $dsn, $qid, int($delay/60), ymdhms($timestamp), $from, chr(96)."->", $to;
+        if ($show_errors && $dsn =~ /^[45]/) {
+            printf "%s %s %-11s %d %s %s %s :: %s\n",
+                   $state, $dsn, $qid, $delay, ymdhms($timestamp), $from, $to, parsemsg($msg || '(unknown error)');
+        }
+        else {
+            printf "%s %s %-11s %6dm %-19.19s %s\n".
+                   "%53.53s %s\n",
+                   $state, $dsn, $qid, $delay, ymdhms($timestamp), $from, chr(96)."->", $to;
+        }
     }
 }
 
