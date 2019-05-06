@@ -1,108 +1,126 @@
-#!/bin/zsh
+#!/usr/bin/perl
 
-setopt nullglob extendedglob
+use strict;
+use warnings;
 
-path+=/usr/local/bin
+use Getopt::Long
+    qw(:config posix_default gnu_compat require_order bundling no_ignore_case);
 
-typeset -a logfiles
-typeset opt analyze=false quiet=false verbose=false cleanup=false
+sub readloop;
+sub usage;
+sub fatal;
 
-main() {
-    while getopts :aqvl:LV opt; do
-        case $opt in
-            (a) analyze=true; verbose=true ;;
-            (q) quiet=true ;;
-            (v) verbose=true ;;
-            (l) logfiles+=$OPTARG ;;
-            (L) logfiles=( /var/log/mail.log*(Om) /var/log/maillog*(Om) ) ;;
-            (V) print "pfgrep __VERSION__ by __AUTHOR__" >&2
-                print "__COPYRIGHT__" >&2
-                exit 0 ;;
-        esac
-    done
-    shift $(( OPTIND - 1 ))
-    ! $quiet || verbose=false
+my ($read_stdin, $tmp_file, $syslog_name, $analyze, $quiet, $verbose, $client, $domain, $sender, $recipient);
+my @logfiles;
 
-    (( $#logfiles > 0 )) || logfiles=( $(default-mail-log-files) )
-    (( $#logfiles > 0 )) || fatal 'No mail log files found'
+GetOptions(
+    'a|analyze' => sub { $analyze = $verbose = 1 },
+    'q|quiet' => \$quiet,
+    'v|verbose' => \$verbose,
+    'n|syslog-name=s' => \$syslog_name,
+    'l|log-file=s' => \@logfiles,
+    'L|all-log-files' => sub {
+        push @logfiles, sort { -M $b <=> -M $a } map { grep { -s $_ } glob($_) } qw(/var/log/mail.log* /var/log/maillog*);
+    },
+    'i|read-stdin' => \$read_stdin,
+    'f|find-sender' => \$sender,
+    't|find-recipient' => \$recipient,
+) or usage;
 
-    if (( $#logfiles == 1 )) && [[ ${logfiles[1]} == '-' ]]; then
-        logfiles=( /tmp/pfgrep.$$.log )
-        cat > ${logfiles[1]}
-        cleanup=true
-    fi
-
-    typeset query=$1
-    case $query in
-        (*@*)
-            find-address $query
-            ;;
-        ([0-9A-F]?????????[0-9A-F])
-            find-queue-id $@
-            ;;
-        (*.*)
-            find-domain $query
-            ;;
-        (*) find-pattern pattern "$query"
-            #print 'usage: pfgrep ADDRESS | QUEUE-ID | DOMAIN' >&2
-            #exit 1
-            ;;
-    esac | sed -n '/^../p'
-    ! $cleanup || rm -f $logfiles
+if ($read_stdin) {
+    usage if @logfiles;
+    my $host = `hostname -s` || 'localhost'; chomp $host;
+    $tmp_file = "/tmp/pfgrep.$host.$$";
+    open my $fhtmp, '>', $tmp_file or fatal "open $tmp_file for writing: $!";
+    while (<STDIN>) {
+        print $fhtmp $_;
+    }
+    @logfiles = ($tmp_file);
+}
+else {
+    @logfiles = default_log_files() if !@logfiles;
+    fatal 'No mail log files found' if !@logfiles;
 }
 
-default-mail-log-files() {
-    set -- $MAILLOG /var/log/maillog /var/log/mail.log
-    for f in $@; do
-        if [[ -e $f ]]; then
-            print $f
-            return
-        fi
-    done
+usage if !@ARGV;
+my @regexpen;
+my $reread;
+foreach (@ARGV) {
+    if (m{^/(.+)/$}) {
+        push @regexpen, qr/$1/;
+        $reread = 1;
+    }
+    elsif (/^([0-9A-Fa-f]{6,})$/) {
+        push @regexpen, qr/: $1: /;
+    }
+    elsif (/^([-a-z]+=)?<?([^@<>]*)\@([^<>\s]+)>?$/) {
+        # Sender, recipient, message ID, etc.
+        my ($k, $u, $d) = ($1, $2, $3);
+        if (!defined $k) {
+            if ($sender) {
+                $k = 'from=';
+            }
+            elsif ($recipient) {
+                $k = 'to=';
+            }
+            else {
+                $k = '=';
+            }
+        }
+        $u = '[^@<>]+' if !length $u;
+        push @regexpen, qr/$k<$u[@]$d>/;
+        $reread = 1;
+    }
+    elsif (/^\[(.+)\]$/) {
+        push @regexpen, qr/\[$1\]/;
+        $reread = 1;
+    }
+    else {
+        push @regexpen, qr/$_/;
+        $reread = 1;
+    }
 }
 
-finish() {
-    if $analyze; then
-        pfanalyze -j
-    else
-        hilite-errors
-    fi
+my (%qid, @qids);
+readloop @logfiles, sub {
+    if (defined $syslog_name) {
+        return if !m{ $syslog_name/[-a-z]+\[};
+    }
+    return if !/^.+: ([0-9A-F]{6,}): /;
+    my $qid = $1;
+    foreach my $rx (@regexpen) {
+        if ($_ =~ $rx) {
+            my $q = $qid{$qid} ||= [];
+            push @qids, $qid if !@$q;
+            push @$q, $_ if !$reread;
+            return;
+        }
+    }
+};
+my $fhout;
+if ($analyze) {
+    open $fhout, '|-', qw(pfanalyze -j) or fatal "exec pfanalyze: $!";
 }
-
-find-pattern() {
-    typeset descrip=$1 pattern="$2" mon day time me process qid etc
-    typeset -a qidlist
-    fgrep -h "$pattern" $logfiles | while read mon day time me process qid etc; do
-        qidlist+=${qid[1,-2]}  # strip trailing colon
-    done
-    if (( $#qidlist == 0 )); then
-        $quiet || print "No log entries for $descrip $pattern found" >&2
-        exit 2
-    fi
-    $quiet || print "\e[33;1mLog entries for $descrip $pattern\e[0m" >&2
-    find-queue-id $qidlist
+else {
+    $fhout = \*STDOUT;
 }
-
-find-domain() {
-    find-pattern domain "@$1"
+if ($reread) {
+    readloop @logfiles, sub {
+        return if !/^.+: ([0-9A-F]{6,}): /;
+        my $qid = $1;
+        my $q = $qid{$qid} or return;
+        push @$q, $_;
+    };
 }
-
-find-address() {
-    find-pattern address "<$1>"
+print_header() if $analyze && $verbose;
+foreach my $qid (@qids) {
+    print "\e[32;1mQueue ID $qid:\e[0m\n" if !$analyze;
+    print $fhout @{ $qid{$qid} };
 }
-
-find-queue-id() {
-    typeset qid
-    if $verbose && $analyze; then
-        print-header
-    fi
-    for qid in ${(u)@}; do
-        if ! $quiet; then
-            $analyze || print "\e[32;1mQueue ID $qid:\e[0m"
-        fi
-        fgrep -h $qid $logfiles | finish
-    done
-    ! $verbose || cat <<EOS
+if ($analyze) {
+    close $fhout or fatal "close pfanalyze: $!";
+}
+print <<'EOS' if $verbose;
 KEY: 
   D = Postfix is done with the message
   Q = the message is still in a queue
@@ -112,24 +130,63 @@ DSN codes:
   5.x.x = failure, Postfix has given up
 For code explanations see http://tools.ietf.org/html/rfc3463
 EOS
+
+if (defined $tmp_file) {
+    unlink $tmp_file;
 }
 
-hilite-errors() {
-    if [[ -t 1 ]] && ! $quiet; then
-        perl -pe 's/(dsn=[^2]....)/\e[41;1m$1\e[0m/g'
-    else
-        cat
-    fi
+# --- Functions
+
+sub readloop {
+    my $sub = pop @_;
+    foreach my $f (@_) {
+        my $fh;
+        if (ref $f) {
+            $fh = $f;
+        }
+        elsif ($f =~ /\.gz$/) {
+            open $fh, '-|', qw(gunzip -c), $f or die "exec gunzip -c $f: $!";
+        }
+        else {
+            open $fh, '<', $f or die "open $f: $!";
+        }
+        local $_;
+        while (<$fh>) {
+            $sub->($f);
+        }
+    }
 }
 
-print-header() {
-    printf -- '* %-5.5s %-11.11s %-7.7s %-19.19s %s\n' DSN 'Queue ID' Elapsed 'End date and time' 'User and host'
-    printf -- '- %-5.5s %-11.11s %-7.7s %-19.19s %s\n' ----- ----------- ---------- -------------------- -------------------------------
+sub default_log_files {
+    my @files = sort { -M $a <=> -M $b } map { grep { -s $_ } glob($_) } qw(/var/log/mail.log* /var/log/maillog*);
+    return if !@files;
+    return shift @files;
 }
 
-fatal() {
-    print -- "$*" >&2
-    exit 2
+sub print_header {
+    printf "* %-5.5s %-11.11s %-7.7s %-19.19s %s\n", 'DSN', 'Queue ID', 'Elapsed', 'End date and time', 'User and host';
+    printf "- %-5.5s %-11.11s %-7.7s %-19.19s %s\n", qw(----- ----------- ---------- -------------------- -------------------------------);
 }
 
-main "$@"
+sub usage {
+    print STDERR <<'EOS';
+usage: pfgrep [-aqvLiftV] [-l FILE] OBJECT...
+OBJECT is one of the following...
+  E-mail address:
+        postmaster@example.domain
+  Postfix queue ID:
+        E794832C38AF
+  Client IP address in square brackets:
+        [1.2.3.4]
+  Domain name:
+        foo.example.org
+  Any other pattern:
+        baz
+EOS
+    exit 1;
+}
+
+sub fatal {
+    print STDERR "pfgrep: @_\n";
+    exit 2;
+}
