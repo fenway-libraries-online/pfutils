@@ -10,11 +10,15 @@ sub readloop;
 sub usage;
 sub fatal;
 
-my ($read_stdin, $tmp_file, $syslog_name, $analyze, $quiet, $verbose, $client, $domain, $sender, $recipient);
+my ($read_stdin, $tmp_file, $syslog_name, $rejected, $quiet, $verbose, $client, $domain, $sender, $recipient);
+my ($analyze, $parseable, $show_errors);
+my $noqueue = 0;
 my @logfiles;
 
 GetOptions(
     'a|analyze' => sub { $analyze = $verbose = 1 },
+    'p|parseable' => sub { $parseable = 1; $verbose = 0 },
+    'e|show-errors' => sub { $show_errors = 1; $verbose = 0 },
     'q|quiet' => \$quiet,
     'v|verbose' => \$verbose,
     'n|syslog-name=s' => \$syslog_name,
@@ -25,6 +29,7 @@ GetOptions(
     'i|read-stdin' => \$read_stdin,
     'f|find-sender' => \$sender,
     't|find-recipient' => \$recipient,
+    'r|rejected' => \$rejected,
 ) or usage;
 
 if ($read_stdin) {
@@ -86,6 +91,17 @@ readloop @logfiles, sub {
     if (defined $syslog_name) {
         return if !m{ $syslog_name/[-a-z]+\[};
     }
+    if ($rejected) {
+        return if !/: NOQUEUE: reject: /;
+        my $qid = '<rejected-' . ++$noqueue . '>';
+        foreach my $rx (@regexpen) {
+            if ($_ =~ $rx) {
+                my $q = $qid{$qid} ||= [$_];
+                push @qids, $qid;
+                return;
+            }
+        }
+    }
     return if !/^.+: ([0-9A-F]{6,}): /;
     my $qid = $1;
     foreach my $rx (@regexpen) {
@@ -99,7 +115,12 @@ readloop @logfiles, sub {
 };
 my $fhout;
 if ($analyze) {
-    open $fhout, '|-', qw(pfanalyze -j) or fatal "exec pfanalyze: $!";
+    my @cmd = qw(pfanalyze);
+    if ($parseable) {
+        push @cmd, qw(-p);
+        push @cmd, qw(-e) if $show_errors;
+    }
+    open $fhout, '|-', @cmd or fatal "exec pfanalyze: $!";
 }
 else {
     $fhout = \*STDOUT;
