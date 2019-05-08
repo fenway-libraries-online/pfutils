@@ -28,6 +28,10 @@ of each job (i.e., each message) in a summarized form.
 .SH OPTIONS
 .
 .TP
+.BI -d " DOMAIN"
+Show only entries with the specified domain name.
+.
+.TP
 .BI -y " YEAR"
 Assume
 .B YEAR
@@ -39,9 +43,19 @@ Show current queue contents.
 .
 .TP
 .B -J
-Show
-.B only
-current queue contents.
+Show only current queue contents.
+.
+.TP
+.B -p
+Print results in a more easily parseable format.
+.
+.TP
+.B -e
+Include error messages in the output.
+.
+.TP
+.B -b
+Show only bounces.
 .
 .TP
 .B -V

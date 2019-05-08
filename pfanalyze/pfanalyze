@@ -72,10 +72,14 @@ while (defined(my $line = <>)) {
     elsif ($line =~ / from=(<[^\s<>]*>)/) {
         $from = $1;
         if ($qid eq 'NOQUEUE') {
-            my ($status, $dsn);
-            if ($etc =~ /^reject: RCPT from \S+: (\d\d\d) (\d\.\d\.\d) [^;]*;\s+.+ to=(<[^\s<>]*>)/) {
-                ($status, $dsn, $to) = ($1, $2, $3);
-                output(REJECTED, [ '--NOQUEUE--', $from, $to, $timestamp, $status, $dsn ], $timestamp);
+            my ($status, $dsn, $msg);
+            # ($etc =~ /: ([^:;]+): ([^:;]+);/g)
+            if ($etc =~ /^reject: RCPT from \S+: (\d\d\d) (\d\.\d\.\d) ([^;]*);\s+.+ to=(<[^\s<>]*>)/) {
+                ($status, $dsn, $msg, $to) = ($1, $2, $3, $4);
+                output(REJECTED, [ '--NOQUEUE--', $from, $to, $timestamp, $status, $dsn, $msg ], $timestamp);
+            }
+            else {
+                die "unrecognized NOQUEUE entry: $line\n";
             }
             undef $from;
             undef $to;
@@ -149,22 +153,23 @@ sub output {
     return if %want and !$want{$status};
     my $delay = defined($started) ? int(($timestamp - $started) / 60) : 0;
     if ($parseable) {
+        # "* %-5.5s %-11.11s %-7.7s %-19.19s %s\n", 'DSN', 'Queue ID', 'Elapsed', 'End date and time', 'User and host';
         if ($show_errors && $dsn =~ /^[45]/) {
-            printf "%s %s %-11s %d %s %s %s :: %s\n",
+            printf "%s %-5.5s %-11s %6dm %s %s %s :: %s\n",
                    $state, $dsn, $qid, $delay, ymdhms($timestamp), $from, $to, parsemsg($msg || '(unknown error)');
         }
         else {
-            printf "%s %s %-11s %d %s %s %s\n",
+            printf "%s %-5.5s %-11s %6dm %s %s %s\n",
                    $state, $dsn, $qid, $delay, ymdhms($timestamp), $from, $to;
         }
     }
     else {
         if ($show_errors && $dsn =~ /^[45]/) {
-            printf "%s %s %-11s %d %s %s %s :: %s\n",
+            printf "%s %-5.5s %-11s %6dm %s %s %s :: %s\n",
                    $state, $dsn, $qid, $delay, ymdhms($timestamp), $from, $to, parsemsg($msg || '(unknown error)');
         }
         else {
-            printf "%s %s %-11s %6dm %-19.19s %s\n".
+            printf "%s %-5.5s %-11s %6dm %-19.19s %s\n".
                    "%53.53s %s\n",
                    $state, $dsn, $qid, $delay, ymdhms($timestamp), $from, chr(96)."->", $to;
         }
