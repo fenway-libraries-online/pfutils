@@ -7,12 +7,17 @@ use POSIX qw(strftime);
 use Getopt::Long
     qw(:config posix_default gnu_compat require_order bundling no_ignore_case);
 
-my ($limit_to_domain, $all_time);
+my ($limit_to_domain, @ignore, $rxignore, $all_time);
 my $verbose = 0;
 
 GetOptions(
     'v|verbose' => sub { $verbose++ },
     'd|domain=s' => sub { $limit_to_domain = lc $_[1] },
+    'I|ignore=s' => sub {
+        my ($d) = $_[1];
+        $d =~ s/[.]/\\./g;
+        push @ignore, $d;
+    },
     'a|all-time' => \$all_time,
     'V|version' => sub {
         print <<'EOS';
@@ -22,6 +27,11 @@ EOS
         exit 0
     },
 ) or usage();
+
+if (@ignore) {
+    my $ignore = '(?:' . join('|', @ignore) . ')$';
+    $rxignore = qr/$ignore/;
+}
 
 @ARGV=('1h', 'Mail log summary for the last hour') if !@ARGV;
 
@@ -45,7 +55,6 @@ while (<STDIN>) {
     my $timestamp = "$end_date $end_time";
     next if $timestamp lt $t0;
     $domain = defined $domain && length $domain ? lc $domain : 'localhost';
-    #$domain = 'localhost' if !defined $domain || !length $domain;
     next if defined $limit_to_domain && $domain ne $limit_to_domain;
     my $result;
     if ($dsn =~ /^2/) {
@@ -61,7 +70,6 @@ while (<STDIN>) {
         $domain2err{$domain}++;
     }
     $domain2results{$domain}{$result}{$user}{$qid}++;
-    # WAS: $domain2results{$domain}{$result}{$user}++;
     $domain2results{$domain}{$result}{'*'}++;
     $domain2results{$domain}{'*'}++;
 }
@@ -75,6 +83,10 @@ foreach my $d (sort keys %domain2results) {
     my $dn = $dhash->{'*'};
     if (!$domain2err{$d} && !$verbose) {
         printf "%4d OK %s\n", $dn, $d;
+        next;
+    }
+    elsif (defined($rxignore) && $d =~ $rxignore) {
+        printf "%4d -- %s (ignored)\n", $dn, $d;
         next;
     }
     printf "%4d -- %s\n", $dn, $d;
